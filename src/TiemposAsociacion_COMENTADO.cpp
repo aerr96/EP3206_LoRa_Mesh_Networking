@@ -2,7 +2,7 @@
             Red Mesh con LoRa
         Universidad Simon Bolivar 
         Alejandro Rivas 13-11208                
-  Tester Tasa Efectiva de Transmision Mesh       */
+    Tester de Tiempos de Asociacion Mesh          */
 
 #include "SSD1306.h" 
 #include <RHRouter.h>
@@ -34,23 +34,19 @@ NTPClient my_time_client(ntpUDP);
 #define NODES 4 //Numero total de nodos en la red 
 
 // Direcciones de los Nodos:
-#define CLIENT_ADDRESS 1  //4 para topologia Y
+#define CLIENT_ADDRESS 1 //4 para topologia Y (RH_TEST_NETWORK 3)
 #define SERVER1_ADDRESS 2
 #define SERVER2_ADDRESS 3
-#define SERVER3_ADDRESS 4 //1 para topologia Y
-
+#define SERVER3_ADDRESS 4 //1 para topologia Y (RH_TEST_NETWORK 3)
+ 
 uint8_t routes[NODES];               // Arreglo de direcciones de siguiente salto para determinados destinos
 int16_t rssi[NODES];                 // Arreglo de mediciones de rssi desde el nodo enrutado mas cercano
 uint8_t buf[RH_MESH_MAX_MESSAGE_LEN];// Buffer para almacenar mensajes:
 
 //Mensajes posibles:
-uint8_t data_c[] = "Hello World!";
-//MaxDefault 245Bytes: abecdefghijklmnopqrstuvwxyzabecdefghijklmnopqrstuabecdefghijklmnopqrstuvwxyzabecdefghijklmnopqrstuvabecdefghijklmnopqrstuvwxyazabaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaecdefghijklmnopqrstuabecdefghijklmnopqrstuvwxyzabecdefghijklmnopqrstuvwaaaaaa
-//128Bytes: abecdefghijklmnopqrstuvwxyzabecdefghijklmnopqrstuabecdefghijklmnopqrstuvwxyzabecdefghijklmnopqrstuvabecdefghijklmnopqrstuvwxyza
-
-int counter = 0;
-int Nmuestras = 8;
-//Para programar servidores o cliente:
+uint8_t data_c[] = "Hi";// World!";
+uint8_t data[] = "Hi back from server1";
+//Para programar servidores (false) o cliente (true):
 bool client = true;
 //Para seleccionar nodo a programar o ajustar una secuencia de envio:
 int PROGRAMING_ADDRESS;
@@ -67,14 +63,14 @@ void getNodeSelection(int i){
     break;
   }}
 
-//Instancia del la clase RH_RF95 como driver de LoRa 
+//Instancia de la clase RH_RF95 como driver de LoRa 
 RH_RF95 rf95(SS,DI0);
 
 //Clase para manejar el envio y la recepcion de paquetes, 
-//utilizando el driver declarado anteriormente
+//utilizando el driver  rf95 
 RHMesh *manager;
 
-//Inicializamos la pantalla OLED y algunos strings por default
+//Intancia de conexion con la pantalla OLED y algunos strings por default
 SSD1306 display(0x3c, 21, 22);
 String status = "";
 String gotmsg = "";
@@ -157,21 +153,18 @@ void refreshRoutingTable(){
 //Funcion encargada de sincronizar con el cliente NTP para obtener los milisegundos de la hora 
 inline void sync_time(){
     my_time_client.begin();
-    my_time_client.setTimeOffset(2880000);
-    my_time_client.setUpdateInterval(2000000);
+    my_time_client.setTimeOffset(28800);
+    my_time_client.setUpdateInterval(20000);
     my_time_client.setPoolServerName("0.ubuntu.pool.ntp.org");
     //my_time_client.setPoolServerName("192.168.1.200");
     //Un timeout mas pequeno brinda mejor precision
     //pero una mayor probabilidade fallar en el ajuste
-    my_time_client.setTimeout(800); 
+    my_time_client.setTimeout(800); //800
     Serial.println("syncing...");
-
     while(my_time_client.update()!=1){
         delay(2000);
         my_time_client.forceUpdate();
     }
-    //my_time_client.forceUpdate();
-
     Serial.print("success: ");
     Serial.println(my_time_client.getFormattedTime());
 }
@@ -191,7 +184,6 @@ const __FlashStringHelper* getErrorString(uint8_t error) {
   }
   return F("Desconocido");
 }
-
 void setup()
 {
     // Inicializamos la comunicacion serial 
@@ -226,7 +218,7 @@ void setup()
         status="init Mesh exitoso";
         Serial.println(status);
 //  Parametros LoRa opcionalmente ajustables
-    uint8_t sf= 7;
+    uint8_t sf= 10;
     rf95.setSpreadingFactor(sf);
     //long bw= 125000;
     //rf95.setSignalBandwidth(bw);
@@ -235,13 +227,13 @@ void setup()
     //rf95.setCADTimeout(500);
     status = "RF95 listo";
     // Para Factores de propagacion altos la transmision es mas lenta
-    // por ende hay que aumentar el timeout del acknowledge 
+    // por ende hay que aumentar el timeout del acknowledge
     if(sf==10){
-    uint16_t timeout =1200;
+    uint16_t timeout =5000;
     manager->setTimeout(timeout);
     }
     if(sf==11||sf==12){
-    uint16_t timeout =2200;
+    uint16_t timeout =20000;
     manager->setTimeout(timeout);
     }
     //Inicializamos la pantalla OLED
@@ -254,182 +246,163 @@ void setup()
         rssi[node] = 0;
     }
     OLEDprint(status,gotmsg);
-    delay(200);
-    
+    delay(1000);
     }
 }
-
-// Funcion que dada las horas de un intervalo de tiempo, calcula el tiempo en milisegundos entre ambas horas
-float totalMilis(float t1,float ts1,float tm1,float t2,float ts2,float tm2)
+// Funcion que dada las horas de un intervalode tiempo, calcula el tiempo en milisegundos entre ambas horas
+float totalMilis(float t1,float ts1,float t2,float ts2)
 {
     float Result;
-    float minutos;
-    if(tm2!=00)
-    {
-        if (tm2>tm1)
-        {
-            minutos=60000*(tm2-tm1);
-        }else{
-            if(tm2==tm1){
-                minutos=0;
-            }else{
-                minutos=60000*(tm2+60-tm1);
-            }
-        }
-    }else{
-        if(tm1==00)
-        {
-            minutos=0;
-        }else{
-            minutos=60000*(60-tm1);
-        }
-    }
     if(ts2!=00)
     {
         if(ts2>ts1)
         {
-            Result=minutos+1000*(ts2-ts1)-t1+t2;
+            Result=1000*(ts2-ts1)-t1+t2;
         }else{
             if(ts1==ts2){
-            Result=minutos+t2-t1;
+            Result=t2-t1;
             }else{
-            Result=minutos+1000*(ts2+60-ts1)-t1+t2;
+            Result=1000*(ts2+60-ts1)-t1+t2;
             }
         }
     }else{
         if(ts1==00)
         {
-            Result=minutos+t2-t1;
+            Result=t2-t1;
         }else{
-            Result=minutos+1000*(60-ts1)-t1+t2;
+            Result=1000*(60-ts1)-t1+t2;
         }
     }
     return Result;
 }
+
 // Funcion para imprimir resultado de las medidas de tiempo por serial 
-String stringTiempos(float t1,float ts1,float tm1,float t2,float ts2,float tm2){
-    float Dif = totalMilis(t1,ts1,tm1,t2,ts2,tm2);
-    String var="Tiempo inicial: min(";
-    var+=tm1;
-    var+=") seg(";
-    var+=ts1;
+String stringTiempos(float st1,float sts1,float st2,float sts2){
+    float Dif = totalMilis(st1,sts1,st2,sts2);
+    String var="Tiempo inicial: seg(";
+    var+=sts1;
     var+=") mili(";
-    var+=t1;
-    var+=") Tiempo final: min(";
-    var+=tm2;
-    var+=") seg(";
-    var+=ts2;
+    var+=st1;
+    var+=") Tiempo final: seg(";
+    var+=sts2;
     var+=") mili(";
-    var+=t2;
+    var+=st2;
     var+=").";
     var+=" Intervalo: ";
     var+=Dif;
-    var+=" ms";
     return var;
 }
 
 // Variables logicas para manejar las primeras corridas de envio
 bool firstrun =true;
-bool secondrun =false;
+bool secondrun=false;
+bool thirdrun=false;
 // Variables para guardar tiempos de interes
 float time1;
 float times1;
-float timem1;
 float time2;
 float times2;
-float timem2;
-float tiempototal;
+float time3;
+float times3;
+float time4;
+float times4;
+float time5;
+float times5;
+float time6;
+float times6;
+float intervalo1;
+float intervalo2;
+float intervalo3;
+float tiempofinal;
 void loop()
 {  
     if(client){
-        if(counter<Nmuestras){   
-            Serial.print("Tamano del paquete:");
-            Serial.println(sizeof(data_c));
-            getNodeSelection(1);
-            status="Sending to servers";
-            OLEDprint(status,gotmsg);  
-            // Enviar un mensaje a un server rf95_mesh
-            // La ruta hacia la direccion destino sera automaticamente descubierta
-            if(counter==0){
-            my_time_client.update();
-            time1=my_time_client.get_millis();
-            times1=my_time_client.getSeconds();
-            timem1=my_time_client.getMinutes();
-            }
-            uint8_t error = manager->sendtoWait(data_c, sizeof(data_c), PROGRAMING_ADDRESS);
-            if (error == RH_ROUTER_ERROR_NONE) 
-                {
-                    Serial.println("paquete enviado");
-                    // Fue entregado con confirmacion el paquete
-                    // Y Ahora esperamos la respuesta del server
-                    uint8_t len = sizeof(buf);
-                    uint8_t from;    
-                    if (manager->recvfromAckTimeout(buf, &len, 30000, &from))
-                    //if (manager->recvfromAck(buf, &len, &from))
-                        {
-                            status="Receiving";
-                            Serial.print("Mensaje de respuesta: ");
-                            Serial.println((char*)buf);
-                            String gotmsg = (char*)buf;
-                            OLEDprint(status,gotmsg);
-                            Serial.print("Obteniendo respuesta de: 0x");
-                            Serial.print(from, HEX);
-                            Serial.print(": ");
-                            Serial.println((char*)buf);
-                            if(counter==Nmuestras-1){
-                                my_time_client.update();
-                                time2=my_time_client.get_millis();
-                                times2=my_time_client.getSeconds();
-                                timem2=my_time_client.getMinutes();
-                                //firstrun=false;
-                                Serial.println("Tiempos primera corrida:");
-                                //Guardamos el tiempo total medido dividio entre dos, debido a que 
-                                //incluye el tiempo en recibir respuesta, como se trabajo con las Latencias
-                                tiempototal=totalMilis(time1,times1,timem1,time2,times2,timem2)/2;
-                                String primerosTiempos=stringTiempos(time1,times1,timem1,time2,times2,timem2);
-                                Serial.println(primerosTiempos);
-                            }
-                            if(secondrun==true){
-                            //tiempototal=tiempototal+intervalo1;
-                            counter++;
-                            }
-                            secondrun=true;
-                            //delay(1000);//Para SF11
-                            //delay(2000);//Para SF12
-                            rssi[PROGRAMING_ADDRESS-1] = rf95.lastRssi();
-                        }
-                        else
-                            {
-                                Serial.println("sin respuesta");
-                                status="No reply";
-                                OLEDprint(status,gotmsg);
-                            }
-                }
-                else{
-                    Serial.println("envio fallido error:");
-                    Serial.println(getErrorString(error));
-                    status="sendtoWait failed";
-                    OLEDprint(status,gotmsg);
-                    }
-        refreshRoutingTable();
-        RoutingTable=getRoutesString();
-        }else{
-            float tiempototal_seg=tiempototal/1000;
-            Serial.print("El tiempo de 8 transmisiondes de 128Bytes es : ");
-            Serial.print(tiempototal_seg);
-            Serial.println(" s");
-            Serial.print("La Tasa efectiva de transmision es: ");
-            Serial.print((int)(8192/tiempototal_seg));
-            Serial.println(" bits/s");
-            delay(10000);
+        //Rutina para programar al Cliente, que en este caso es el nodo que busca
+        //ruta para enviar un paquete y al cual le medimos el tiempo de asociacion a la red Mesh
+        
+        // Manualmente elegimos a cual nodo queremos enviar el paquete
+        getNodeSelection(1); // segun las direcciones definidas en la funcion y la topologia escogida 
+        status="Sending to servers";
+        OLEDprint(status,gotmsg);  
+        // Enviar un mensaje a un server rf95_mesh
+        // La ruta hacia la direccion destino sera automaticamente descubierta
+        if(firstrun==true){//Toma de tiempos iniciales de primera corrida
+        my_time_client.update();
+        time1=my_time_client.get_millis();
+        times1=my_time_client.getSeconds();
         }
+        if(secondrun==true){//Toma de tiempos iniciales de segunda corrida
+        my_time_client.update();
+        time3=my_time_client.get_millis();
+        times3=my_time_client.getSeconds();
+        }
+        if(thirdrun==true){//Toma de tiempos iniciales de tercera corrida
+        my_time_client.update();
+        time5=my_time_client.get_millis();
+        times5=my_time_client.getSeconds();
+        }
+        uint8_t error = manager->sendtoWait(data_c, sizeof(data_c), PROGRAMING_ADDRESS);
+        if (error == RH_ROUTER_ERROR_NONE) 
+        //if (manager->sendtoWait(data_c, sizeof(data_c), PROGRAMING_ADDRESS) == RH_ROUTER_ERROR_NONE)
+            {   
+                Serial.println("paquete enviado");
+                if(thirdrun==true){//Toma de tiempo de cierre del intervalo e impresion de resultado
+                my_time_client.update();
+                time6=my_time_client.get_millis();
+                times6=my_time_client.getSeconds();
+                thirdrun=false;
+                Serial.println("Tiempos tercera corrida:");
+                intervalo3=totalMilis(time5,times5,time6,times6);
+                String tercerostiempos=stringTiempos(time5,times5,time6,times6);
+                Serial.println(tercerostiempos);
+                tiempofinal=(intervalo2+intervalo3)/2;
+                tiempofinal=intervalo1-tiempofinal;
+                Serial.print("Tiempo de Asociacion: ");
+                Serial.print((int)tiempofinal);
+                Serial.print(" ms");
+                delay(1000);
+                }
+                if(secondrun==true){//Toma de tiempo de cierre del intervalo e impresion de resultado
+                my_time_client.update();
+                time4=my_time_client.get_millis();
+                times4=my_time_client.getSeconds();
+                secondrun=false;
+                thirdrun=true;
+                Serial.println("Tiempos segunda corrida:");
+                intervalo2=totalMilis(time3,times3,time4,times4);
+                String segundostiempos=stringTiempos(time3,times3,time4,times4);
+                Serial.println(segundostiempos);
+                delay(1000);
+                //delay(20000);//PAra SF11 y SF12
+                }
+                if(firstrun==true){//Toma de tiempo de cierre del intervalo e impresion de resultado
+                my_time_client.update();
+                time2=my_time_client.get_millis();
+                times2=my_time_client.getSeconds();
+                firstrun=false;
+                secondrun=true;
+                Serial.println("Tiempos primera corrida:");
+                intervalo1=totalMilis(time1,times1,time2,times2);
+                String primerosTiempos=stringTiempos(time1,times1,time2,times2);
+                Serial.println(primerosTiempos);
+                delay(1000);
+                //delay(20000);//PAra SF11 y SF12
+                }
+            }
+            else{
+                Serial.println("envio fallido error:");
+                Serial.println(getErrorString(error));
+                status="sendtoWait failed";
+                OLEDprint(status,gotmsg);
+                }
+    refreshRoutingTable();
+    RoutingTable=getRoutesString();
     }else{
         //Rutina para programar uno de los Servidores
         uint8_t len = sizeof(buf);
         uint8_t from;
-        //Recepcion continua o descubrimiento de rutas, en espera de mensaje del cliente 
-        //if (manager->recvfromAckTimeout(buf, &len,3000, &from))
-        if (manager->recvfromAckTimeout(buf, &len,20000, &from))
+        //Recepcion continua, en espera de mensaje del cliente 
+        if (manager->recvfromAck(buf, &len, &from))
         {
         status="Receiving";
         String gotmsg = (char*)buf;
@@ -438,19 +411,8 @@ void loop()
         Serial.print(from, HEX);
         Serial.print(": ");
         Serial.println((char*)buf);
-            // Enviar respuesta al cliente de origen
-            if (manager->sendtoWait(buf, strlen((char*)buf), from) != RH_ROUTER_ERROR_NONE)
-                {
-                status="sendtoWait failed";
-                OLEDprint(status,gotmsg);
-                }else
-                {
-                    status="Sending reply";
-                    OLEDprint(status,gotmsg);
-                    rssi[from]= rf95.lastRssi();                 
-                }
         }else{
-                status="Waiting... xd";
+                status="Waiting...";
                 OLEDprint(status,gotmsg);
         }
     refreshRoutingTable();
